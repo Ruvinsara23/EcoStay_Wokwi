@@ -1,0 +1,14 @@
+{
+  "name": "EcoStay Dynamic PZEM-004T",
+  "author": "EcoStay",
+  "pins": [
+    "VCC",
+    "GND",
+    "TX",
+    "RX",
+    "FAN",
+    "LAMP"
+  ],
+  "controls": []
+}
+

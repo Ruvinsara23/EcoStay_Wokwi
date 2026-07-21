@@ -1,0 +1,9 @@
+[wokwi]
+version = 1
+firmware = ".pio/build/esp32dev/firmware.bin"
+elf = ".pio/build/esp32dev/firmware.elf"
+
+[[chip]]
+name = "pzem-004t"
+binary = "chips/pzem-004t.chip.wasm"
+

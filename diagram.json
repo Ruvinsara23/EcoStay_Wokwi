@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "author": "EcoStay",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 54,
+      "left": 80,
+      "rotate": 0,
+      "attrs": {}
+    },
+    {
+      "type": "chip-pzem-004t",
+      "id": "chip1",
+      "top": -174,
+      "left": 80,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht",
+      "top": -174,
+      "left": -374,
+      "attrs": {
+        "temperature": "26",
+        "humidity": "55"
+      }
+    },
+    {
+      "type": "wokwi-pir-motion-sensor",
+      "id": "pir",
+      "top": -42,
+      "left": -390,
+      "attrs": {
+        "delayTime": "5"
+      }
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "distance",
+      "top": 104,
+      "left": -414,
+      "attrs": {
+        "distance": "150"
+      }
+    },
+    {
+      "type": "wokwi-gas-sensor",
+      "id": "gas",
+      "top": 244,
+      "left": -414,
+      "attrs": {
+        "ppm": "250"
+      }
+    },
+    {
+      "type": "wokwi-slide-potentiometer",
+      "id": "water",
+      "top": 402,
+      "left": -414,
+      "attrs": {
+        "value": "375",
+        "travelLength": "60"
+      }
+    },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "flow",
+      "top": 546,
+      "left": -374,
+      "attrs": {
+        "frequency": "16"
+      }
+    },
+    {
+      "type": "wokwi-slide-switch",
+      "id": "door",
+      "top": 646,
+      "left": -374,
+      "attrs": {
+        "value": "1",
+        "bounce": "0"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "buzzer",
+      "top": 510,
+      "left": 50,
+      "attrs": {
+        "volume": "0.20"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "fanRelay",
+      "top": -150,
+      "left": 454,
+      "attrs": {
+        "transistor": "npn"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "lightRelay",
+      "top": 0,
+      "left": 454,
+      "attrs": {
+        "transistor": "npn"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "presenceRelay",
+      "top": 150,
+      "left": 454,
+      "attrs": {
+        "transistor": "npn"
+      }
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "pumpRelay",
+      "top": 300,
+      "left": 454,
+      "attrs": {
+        "transistor": "npn"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "statusLed",
+      "top": 510,
+      "left": 330,
+      "attrs": {
+        "color": "green",
+        "label": "External status"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "statusResistor",
+      "top": 494,
+      "left": 238,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:5V", "chip1:VCC", "red", [] ],
+    [ "esp:GND.1", "chip1:GND", "black", [] ],
+    [ "esp:18", "chip1:TX", "green", [] ],
+    [ "esp:19", "chip1:RX", "blue", [] ],
+    [ "esp:26", "chip1:FAN", "orange", [] ],
+    [ "esp:13", "chip1:LAMP", "purple", [] ],
+
+    [ "esp:3V3", "dht:VCC", "red", [] ],
+    [ "esp:GND.1", "dht:GND", "black", [] ],
+    [ "esp:4", "dht:SDA", "green", [] ],
+
+    [ "esp:5V", "pir:VCC", "red", [] ],
+    [ "esp:GND.1", "pir:GND", "black", [] ],
+    [ "pir:OUT", "esp:27", "green", [] ],
+
+    [ "esp:5V", "distance:VCC", "red", [] ],
+    [ "esp:GND.1", "distance:GND", "black", [] ],
+    [ "esp:17", "distance:TRIG", "blue", [] ],
+    [ "distance:ECHO", "esp:16", "green", [] ],
+
+    [ "esp:5V", "gas:VCC", "red", [] ],
+    [ "esp:GND.1", "gas:GND", "black", [] ],
+    [ "gas:AO", "esp:32", "green", [] ],
+
+    [ "esp:3V3", "water:VCC", "red", [] ],
+    [ "esp:GND.1", "water:GND", "black", [] ],
+    [ "water:SIG", "esp:34", "green", [] ],
+
+    [ "flow:CLK", "esp:35", "cyan", [] ],
+
+    [ "door:1", "esp:GND.1", "black", [] ],
+    [ "door:2", "esp:33", "green", [] ],
+    [ "door:3", "esp:3V3", "red", [] ],
+
+    [ "esp:GND.1", "buzzer:1", "black", [] ],
+    [ "esp:25", "buzzer:2", "orange", [] ],
+
+    [ "esp:5V", "fanRelay:VCC", "red", [] ],
+    [ "esp:GND.1", "fanRelay:GND", "black", [] ],
+    [ "esp:26", "fanRelay:IN", "orange", [] ],
+
+    [ "esp:5V", "lightRelay:VCC", "red", [] ],
+    [ "esp:GND.1", "lightRelay:GND", "black", [] ],
+    [ "esp:13", "lightRelay:IN", "purple", [] ],
+
+    [ "esp:5V", "presenceRelay:VCC", "red", [] ],
+    [ "esp:GND.1", "presenceRelay:GND", "black", [] ],
+    [ "esp:14", "presenceRelay:IN", "gray", [] ],
+
+    [ "esp:5V", "pumpRelay:VCC", "red", [] ],
+    [ "esp:GND.1", "pumpRelay:GND", "black", [] ],
+    [ "esp:5", "pumpRelay:IN", "yellow", [] ],
+
+    [ "esp:23", "statusResistor:1", "green", [] ],
+    [ "statusResistor:2", "statusLed:A", "green", [] ],
+    [ "statusLed:C", "esp:GND.1", "black", [] ]
+  ],
+  "dependencies": {}
+}

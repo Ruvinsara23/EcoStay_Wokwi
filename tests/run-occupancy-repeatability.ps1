@@ -25,17 +25,20 @@ function Invoke-ScenarioRun {
 
   $logPath = Join-Path $artifactDirectory "occupancy-run-$RunNumber.log"
 
-  & $wokwiCli $projectRoot `
+  $cliOutput = & $wokwiCli $projectRoot `
     --scenario $scenarioPath `
     --timeout $TimeoutMs `
     --timeout-exit-code 42 `
-    --serial-log-file $logPath
+    --serial-log-file $logPath 2>&1
+  $exitCode = $LASTEXITCODE
 
-  if ($LASTEXITCODE -ne 0) {
-    throw "Wokwi run $RunNumber failed with exit code $LASTEXITCODE"
+  $cliOutput | ForEach-Object { Write-Host $_ }
+
+  if ($exitCode -ne 0) {
+    throw "Wokwi run $RunNumber failed with exit code $exitCode"
   }
 
-  return $logPath
+  Write-Output $logPath
 }
 
 function Read-ScenarioTranscript {

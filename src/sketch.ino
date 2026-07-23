@@ -301,6 +301,7 @@ void executeSimulationScenarioEntry(
   uint32_t elapsedMs
 );
 void updateSimulationScenario();
+void printSimScenarioLabel(const char *label);
 void printSimScenarioEvent(const SimScenarioTranscriptEvent &event);
 void flushSimulationScenarioTranscript();
 #endif
@@ -616,6 +617,32 @@ void updateSimulationScenario() {
   }
 }
 
+void printSimScenarioLabel(const char *label) {
+  Serial.print('"');
+  if (label != nullptr) {
+    for (const char *cursor = label; *cursor != '\0'; cursor++) {
+      char value = *cursor;
+      switch (value) {
+        case '\\': Serial.print("\\\\"); break;
+        case '"': Serial.print("\\\""); break;
+        case '\n': Serial.print("\\n"); break;
+        case '\r': Serial.print("\\r"); break;
+        case '\t': Serial.print("\\t"); break;
+        default:
+          if (static_cast<uint8_t>(value) < 0x20) {
+            Serial.printf(
+              "\\u%04x",
+              static_cast<unsigned int>(static_cast<uint8_t>(value))
+            );
+          } else {
+            Serial.print(value);
+          }
+      }
+    }
+  }
+  Serial.print('"');
+}
+
 void printSimScenarioEvent(const SimScenarioTranscriptEvent &event) {
   Serial.printf(
     "SIM_SCENARIO_EVENT elapsed_ms=%lu scheduled_ms=%lu action=%s",
@@ -642,7 +669,7 @@ void printSimScenarioEvent(const SimScenarioTranscriptEvent &event) {
       break;
     case SIM_ACTION_MARKER:
       Serial.print(" label=");
-      Serial.print(event.label != nullptr ? event.label : "");
+      printSimScenarioLabel(event.label);
       break;
     case SIM_ACTION_PIR_RELEASE:
       Serial.print(" value=0");

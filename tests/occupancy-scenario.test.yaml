@@ -10,5 +10,5 @@ steps:
   - wait-serial: 'action=DOOR_OPEN value=1 occupancy=ENTRY_DETECTED'
   - wait-serial: 'action=SET_DISTANCE value_cm=40.0 occupancy=OCCUPIED_ACTIVE'
   - wait-serial: 'SIM_SCENARIO_STATE'
-  - wait-serial: 'action=MARKER label=placeholder_end occupancy=OCCUPIED_IDLE'
+  - wait-serial: 'action=MARKER label="placeholder_end" occupancy=OCCUPIED_IDLE'
   - wait-serial: 'SIM_SCENARIO_COMPLETE'

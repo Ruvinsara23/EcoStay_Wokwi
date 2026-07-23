@@ -18,8 +18,9 @@
 // The EcoStay four-channel relay board is active-low: LOW means load ON.
 #define LOAD_ON_LEVEL      LOW
 
-// One real simulation second represents 60 virtual seconds.
-#define TIME_SCALE         60.0
+// Integrate at the simulator's real-time scale so energy remains comparable
+// with Firebase server-timestamped experiment durations.
+#define TIME_SCALE         1.0
 
 typedef struct {
   uart_dev_t uart;
@@ -352,4 +353,3 @@ void chip_init(void) {
     LAMP_POWER_W
   );
 }
-

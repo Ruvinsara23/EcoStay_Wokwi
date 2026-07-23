@@ -144,10 +144,11 @@ Expected readings:
 | `SIM_LOAD FAN` | 235 V | about 0.298 A | 70 W |
 | `SIM_LOAD BOTH` | 235 V | about 0.349 A | 82 W |
 
-Energy increases at 60× time. It may appear to step when the next state is
-shown because the model first accounts for energy consumed during the previous
-state. The PZEM protocol reports whole watt-hours, so the firmware's kWh value
-changes in approximately `0.001 kWh` increments.
+Energy integrates at 1× simulator time. It may appear to step when the next
+state is shown because the model first accounts for energy consumed during the
+previous state. The PZEM protocol reports whole watt-hours, so the firmware's
+kWh value changes in approximately `0.001 kWh` increments. At a constant 82 W,
+a three-hour simulated interval accumulates approximately 246 Wh (0.246 kWh).
 
 Enter this to return fan and lamp control to Firebase:
 

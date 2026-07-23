@@ -25,12 +25,21 @@ function Invoke-ScenarioRun {
 
   $logPath = Join-Path $artifactDirectory "occupancy-run-$RunNumber.log"
 
-  $cliOutput = & $wokwiCli $projectRoot `
-    --scenario $scenarioPath `
-    --timeout $TimeoutMs `
-    --timeout-exit-code 42 `
-    --serial-log-file $logPath 2>&1
-  $exitCode = $LASTEXITCODE
+  # Windows PowerShell converts a native program's stderr into ErrorRecord
+  # objects. Wokwi writes nonfatal diagram warnings to stderr, so temporarily
+  # allow those records through and decide success from the CLI exit code.
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $cliOutput = & $wokwiCli $projectRoot `
+      --scenario $scenarioPath `
+      --timeout $TimeoutMs `
+      --timeout-exit-code 42 `
+      --serial-log-file $logPath 2>&1
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
 
   $cliOutput | ForEach-Object { Write-Host $_ }
 

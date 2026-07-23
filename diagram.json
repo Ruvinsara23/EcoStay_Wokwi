@@ -176,7 +176,7 @@
 
     [ "esp:5V", "gas:VCC", "red", [] ],
     [ "esp:GND.1", "gas:GND", "black", [] ],
-    [ "gas:AO", "esp:32", "green", [] ],
+    [ "gas:AOUT", "esp:32", "green", [] ],
 
     [ "esp:3V3", "water:VCC", "red", [] ],
     [ "esp:GND.1", "water:GND", "black", [] ],

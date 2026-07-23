@@ -83,6 +83,46 @@ Wokwi supplies a DHT22 part, while the physical EcoStay prototype uses a
 DHT11. `sketch.ino` selects DHT22 only when `ECOSTAY_WOKWI_SIMULATION` is `1`
 and restores DHT11 when it is `0`.
 
+## Deterministic occupancy scenarios
+
+The simulation build includes a non-blocking occupancy scenario table in
+`src/sketch.ino`. It overrides only the door, PIR, and ultrasonic sensor reads;
+the existing human-detection fusion and occupancy state machine remain the code
+under test. The entire engine is excluded when
+`ECOSTAY_WOKWI_SIMULATION` is `0`.
+
+Start, inspect, or abort the compiled timeline with:
+
+```text
+SIM_SCENARIO START
+SIM_SCENARIO STATUS
+SIM_SCENARIO STOP
+```
+
+`START` establishes a repeatable baseline (`VACANT`, door closed, PIR inactive,
+distance 150 cm), then executes each table entry using offsets from `millis()`.
+`STOP` releases all three sensor overrides. Manual bench overrides are:
+
+```text
+SIM_DOOR 0|1
+SIM_PIR 0|1
+SIM_DISTANCE <cm>
+```
+
+Scenario actions emit parseable `SIM_SCENARIO_EVENT` records after the existing
+state machine evaluates their resulting inputs. Timeout-driven state changes
+emit `SIM_SCENARIO_STATE` records. The checked-in table is an 18-second
+placeholder and should be replaced with the final experimental timeline.
+
+After setting `WOKWI_CLI_TOKEN`, run the automated smoke test twice:
+
+```powershell
+.\wokwi-cli.exe . --scenario tests/occupancy-scenario.test.yaml --timeout 60000
+```
+
+Both runs must complete with the same ordered action/state assertions. Preserve
+the serial logs when comparing actual `elapsed_ms` jitter between runs.
+
 ## Isolated verification without Firebase
 
 After boot, enter one command at a time in Serial Monitor. Allow up to three

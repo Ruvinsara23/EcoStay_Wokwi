@@ -14,7 +14,9 @@ Preferences preferences;
 // 1 = Wokwi integration build. Uses Wokwi-GUEST and enables the optional
 //     SIM_LOAD serial command for isolated relay/PZEM verification.
 // 0 = Physical ESP32 build. Replace the two placeholders before flashing.
+#ifndef ECOSTAY_WOKWI_SIMULATION
 #define ECOSTAY_WOKWI_SIMULATION 1
+#endif
 
 #if ECOSTAY_WOKWI_SIMULATION
 #define WIFI_SSID "Wokwi-GUEST"
@@ -217,6 +219,90 @@ bool buzzerState = false;
 bool simLoadOverride = false;
 bool simFanRequest = false;
 bool simLightRequest = false;
+
+// Simulation-only occupancy input overrides. These replace only the sensor
+// reads; updateOccupancyState() remains the single occupancy logic under test.
+bool simDoorOverrideActive = false;
+bool simDoorOpen = false;
+bool simPirOverrideActive = false;
+bool simPirDetected = false;
+bool simDistanceOverrideActive = false;
+float simDistanceCm = 150.0f;
+
+enum SimScenarioAction : uint8_t {
+  SIM_ACTION_DOOR_OPEN,
+  SIM_ACTION_DOOR_CLOSE,
+  SIM_ACTION_PIR_PULSE,
+  SIM_ACTION_SET_DISTANCE,
+  SIM_ACTION_MARKER,
+  SIM_ACTION_PIR_RELEASE
+};
+
+struct SimScenarioEntry {
+  uint32_t offsetMs;
+  SimScenarioAction action;
+  float value;
+  const char *label;
+};
+
+// Short deterministic placeholder. Replace only this table when the final
+// experimental occupancy timeline is available.
+const SimScenarioEntry SIM_OCCUPANCY_SCENARIO[] = {
+  {    0, SIM_ACTION_MARKER,       0.0f, "placeholder_start" },
+  {    0, SIM_ACTION_DOOR_CLOSE,   0.0f, nullptr },
+  {    0, SIM_ACTION_SET_DISTANCE, 150.0f, nullptr },
+  { 1000, SIM_ACTION_DOOR_OPEN,    1.0f, nullptr },
+  { 2000, SIM_ACTION_SET_DISTANCE, 40.0f, nullptr },
+  { 2500, SIM_ACTION_DOOR_CLOSE,   0.0f, nullptr },
+  { 4000, SIM_ACTION_PIR_PULSE,    1000.0f, nullptr },
+  { 6000, SIM_ACTION_SET_DISTANCE, 150.0f, nullptr },
+  {18000, SIM_ACTION_MARKER,       0.0f, "placeholder_end" }
+};
+
+constexpr size_t SIM_SCENARIO_ENTRY_COUNT =
+  sizeof(SIM_OCCUPANCY_SCENARIO) / sizeof(SIM_OCCUPANCY_SCENARIO[0]);
+
+struct SimScenarioTranscriptEvent {
+  uint32_t elapsedMs;
+  uint32_t scheduledMs;
+  SimScenarioAction action;
+  float value;
+  const char *label;
+};
+
+SimScenarioTranscriptEvent simPendingEvents[SIM_SCENARIO_ENTRY_COUNT + 1];
+size_t simPendingEventCount = 0;
+bool simScenarioRunning = false;
+bool simScenarioCompleted = false;
+bool simScenarioCompletionPending = false;
+size_t simScenarioPosition = 0;
+uint32_t simScenarioStartedAt = 0;
+bool simPirPulseActive = false;
+uint32_t simPirReleaseOffsetMs = 0;
+String simLastTranscriptOccupancy = "VACANT";
+
+// Explicit prototypes keep Arduino's .ino preprocessor from emitting
+// simulation-type declarations outside this compile-time guard.
+const char *simScenarioActionName(SimScenarioAction action);
+void releaseSimulationOccupancyOverrides();
+void queueSimScenarioEvent(
+  uint32_t elapsedMs,
+  uint32_t scheduledMs,
+  SimScenarioAction action,
+  float value,
+  const char *label
+);
+void resetOccupancyForScenario(uint32_t now);
+void startSimulationScenario();
+void stopSimulationScenario();
+void printSimulationScenarioStatus();
+void executeSimulationScenarioEntry(
+  const SimScenarioEntry &entry,
+  uint32_t elapsedMs
+);
+void updateSimulationScenario();
+void printSimScenarioEvent(const SimScenarioTranscriptEvent &event);
+void flushSimulationScenarioTranscript();
 #endif
 
 // ======================
@@ -303,6 +389,292 @@ const char *occupancyStateToString(const String &state) {
 bool isOccupiedState(const String &state) {
   return state == "ENTRY_DETECTED" || state == "OCCUPIED_ACTIVE" || state == "OCCUPIED_IDLE" || state == "OCCUPIED_SLEEPING" || state == "EXIT_PENDING";
 }
+
+#if ECOSTAY_WOKWI_SIMULATION
+const char *simScenarioActionName(SimScenarioAction action) {
+  switch (action) {
+    case SIM_ACTION_DOOR_OPEN: return "DOOR_OPEN";
+    case SIM_ACTION_DOOR_CLOSE: return "DOOR_CLOSE";
+    case SIM_ACTION_PIR_PULSE: return "PIR_PULSE";
+    case SIM_ACTION_SET_DISTANCE: return "SET_DISTANCE";
+    case SIM_ACTION_MARKER: return "MARKER";
+    case SIM_ACTION_PIR_RELEASE: return "PIR_RELEASE";
+  }
+  return "UNKNOWN";
+}
+
+void releaseSimulationOccupancyOverrides() {
+  simDoorOverrideActive = false;
+  simPirOverrideActive = false;
+  simDistanceOverrideActive = false;
+  simPirPulseActive = false;
+}
+
+void queueSimScenarioEvent(
+  uint32_t elapsedMs,
+  uint32_t scheduledMs,
+  SimScenarioAction action,
+  float value,
+  const char *label
+) {
+  if (simPendingEventCount >= SIM_SCENARIO_ENTRY_COUNT + 1) {
+    Serial.println("SIM_SCENARIO_ERROR reason=transcript_queue_full");
+    return;
+  }
+
+  SimScenarioTranscriptEvent &event = simPendingEvents[simPendingEventCount++];
+  event.elapsedMs = elapsedMs;
+  event.scheduledMs = scheduledMs;
+  event.action = action;
+  event.value = value;
+  event.label = label;
+}
+
+void resetOccupancyForScenario(uint32_t now) {
+  doorAlertDone = false;
+  lastDoorState = -1;
+  lastPIRState = -1;
+  lastHumanDetected = false;
+  lastHumanTime = now;
+  relay2State = false;
+
+  doorOpen = false;
+  pirDetected = false;
+  humanDetected = false;
+  currentDistance = 150.0f;
+  lastDoorChangeAt = now;
+  lastMotionAt = now;
+  occupancyState = "VACANT";
+}
+
+void startSimulationScenario() {
+  uint32_t now = millis();
+
+  simScenarioStartedAt = now;
+  simScenarioPosition = 0;
+  simPendingEventCount = 0;
+  simScenarioRunning = true;
+  simScenarioCompleted = false;
+  simScenarioCompletionPending = false;
+  simPirPulseActive = false;
+  simLastTranscriptOccupancy = "VACANT";
+
+  // Deterministic baseline. Table actions then modify these inputs at their
+  // declared offsets before the normal sensor fusion/state machine executes.
+  simDoorOverrideActive = true;
+  simDoorOpen = false;
+  simPirOverrideActive = true;
+  simPirDetected = false;
+  simDistanceOverrideActive = true;
+  simDistanceCm = 150.0f;
+  resetOccupancyForScenario(now);
+
+  Serial.printf(
+    "SIM_SCENARIO_START elapsed_ms=0 entries=%u occupancy=%s\n",
+    static_cast<unsigned int>(SIM_SCENARIO_ENTRY_COUNT),
+    occupancyState.c_str()
+  );
+}
+
+void stopSimulationScenario() {
+  uint32_t elapsedMs = simScenarioRunning
+    ? millis() - simScenarioStartedAt
+    : 0;
+
+  simScenarioRunning = false;
+  simScenarioCompleted = false;
+  simScenarioCompletionPending = false;
+  simScenarioPosition = 0;
+  simPendingEventCount = 0;
+  releaseSimulationOccupancyOverrides();
+
+  Serial.printf(
+    "SIM_SCENARIO_STOP elapsed_ms=%lu overrides=released occupancy=%s\n",
+    static_cast<unsigned long>(elapsedMs),
+    occupancyState.c_str()
+  );
+}
+
+void printSimulationScenarioStatus() {
+  uint32_t elapsedMs =
+    (simScenarioRunning || simScenarioCompleted)
+      ? millis() - simScenarioStartedAt
+      : 0;
+
+  const char *state = simScenarioRunning
+    ? "running"
+    : (simScenarioCompleted ? "completed" : "idle");
+
+  Serial.printf(
+    "SIM_SCENARIO_STATUS state=%s elapsed_ms=%lu position=%u total=%u "
+    "door_override=%u pir_override=%u distance_override=%u occupancy=%s\n",
+    state,
+    static_cast<unsigned long>(elapsedMs),
+    static_cast<unsigned int>(simScenarioPosition),
+    static_cast<unsigned int>(SIM_SCENARIO_ENTRY_COUNT),
+    simDoorOverrideActive ? 1 : 0,
+    simPirOverrideActive ? 1 : 0,
+    simDistanceOverrideActive ? 1 : 0,
+    occupancyState.c_str()
+  );
+}
+
+void executeSimulationScenarioEntry(
+  const SimScenarioEntry &entry,
+  uint32_t elapsedMs
+) {
+  switch (entry.action) {
+    case SIM_ACTION_DOOR_OPEN:
+      simDoorOverrideActive = true;
+      simDoorOpen = true;
+      break;
+
+    case SIM_ACTION_DOOR_CLOSE:
+      simDoorOverrideActive = true;
+      simDoorOpen = false;
+      break;
+
+    case SIM_ACTION_PIR_PULSE: {
+      uint32_t durationMs = entry.value > 0.0f
+        ? static_cast<uint32_t>(entry.value)
+        : 1000;
+      simPirOverrideActive = true;
+      simPirDetected = true;
+      simPirPulseActive = true;
+      simPirReleaseOffsetMs = entry.offsetMs + durationMs;
+      break;
+    }
+
+    case SIM_ACTION_SET_DISTANCE:
+      simDistanceOverrideActive = true;
+      simDistanceCm = entry.value;
+      // Make the existing non-blocking distance task consume the new value in
+      // this loop, before updateOccupancyState() and transcript emission.
+      lastDistanceRead = millis() - DISTANCE_INTERVAL;
+      break;
+
+    case SIM_ACTION_MARKER:
+      break;
+
+    case SIM_ACTION_PIR_RELEASE:
+      // Internal event only; never placed in the compiled scenario table.
+      break;
+  }
+
+  queueSimScenarioEvent(
+    elapsedMs,
+    entry.offsetMs,
+    entry.action,
+    entry.value,
+    entry.label
+  );
+}
+
+void updateSimulationScenario() {
+  if (!simScenarioRunning) {
+    return;
+  }
+
+  uint32_t elapsedMs = millis() - simScenarioStartedAt;
+
+  if (simPirPulseActive && elapsedMs >= simPirReleaseOffsetMs) {
+    simPirDetected = false;
+    simPirPulseActive = false;
+    queueSimScenarioEvent(
+      elapsedMs,
+      simPirReleaseOffsetMs,
+      SIM_ACTION_PIR_RELEASE,
+      0.0f,
+      nullptr
+    );
+  }
+
+  while (
+    simScenarioPosition < SIM_SCENARIO_ENTRY_COUNT &&
+    elapsedMs >= SIM_OCCUPANCY_SCENARIO[simScenarioPosition].offsetMs
+  ) {
+    const SimScenarioEntry &entry =
+      SIM_OCCUPANCY_SCENARIO[simScenarioPosition];
+    executeSimulationScenarioEntry(entry, elapsedMs);
+    simScenarioPosition++;
+  }
+
+  if (
+    simScenarioPosition == SIM_SCENARIO_ENTRY_COUNT &&
+    !simPirPulseActive
+  ) {
+    simScenarioRunning = false;
+    simScenarioCompleted = true;
+    simScenarioCompletionPending = true;
+  }
+}
+
+void printSimScenarioEvent(const SimScenarioTranscriptEvent &event) {
+  Serial.printf(
+    "SIM_SCENARIO_EVENT elapsed_ms=%lu scheduled_ms=%lu action=%s",
+    static_cast<unsigned long>(event.elapsedMs),
+    static_cast<unsigned long>(event.scheduledMs),
+    simScenarioActionName(event.action)
+  );
+
+  switch (event.action) {
+    case SIM_ACTION_DOOR_OPEN:
+      Serial.print(" value=1");
+      break;
+    case SIM_ACTION_DOOR_CLOSE:
+      Serial.print(" value=0");
+      break;
+    case SIM_ACTION_PIR_PULSE:
+      Serial.printf(
+        " duration_ms=%lu",
+        static_cast<unsigned long>(event.value)
+      );
+      break;
+    case SIM_ACTION_SET_DISTANCE:
+      Serial.printf(" value_cm=%.1f", event.value);
+      break;
+    case SIM_ACTION_MARKER:
+      Serial.print(" label=");
+      Serial.print(event.label != nullptr ? event.label : "");
+      break;
+    case SIM_ACTION_PIR_RELEASE:
+      Serial.print(" value=0");
+      break;
+  }
+
+  Serial.print(" occupancy=");
+  Serial.println(occupancyState);
+}
+
+void flushSimulationScenarioTranscript() {
+  for (size_t i = 0; i < simPendingEventCount; i++) {
+    printSimScenarioEvent(simPendingEvents[i]);
+  }
+  simPendingEventCount = 0;
+
+  if (
+    (simScenarioRunning || simScenarioCompletionPending) &&
+    occupancyState != simLastTranscriptOccupancy
+  ) {
+    Serial.printf(
+      "SIM_SCENARIO_STATE elapsed_ms=%lu from=%s to=%s\n",
+      static_cast<unsigned long>(millis() - simScenarioStartedAt),
+      simLastTranscriptOccupancy.c_str(),
+      occupancyState.c_str()
+    );
+    simLastTranscriptOccupancy = occupancyState;
+  }
+
+  if (simScenarioCompletionPending) {
+    simScenarioCompletionPending = false;
+    Serial.printf(
+      "SIM_SCENARIO_COMPLETE elapsed_ms=%lu occupancy=%s\n",
+      static_cast<unsigned long>(millis() - simScenarioStartedAt),
+      occupancyState.c_str()
+    );
+  }
+}
+#endif
 
 // ======================
 // PZEM-004T TELEMETRY (real reads - ADR-0007 slice 05)
@@ -394,7 +766,15 @@ void updateDHTReading() {
 void updateDistanceReading() {
   if (millis() - lastDistanceRead >= DISTANCE_INTERVAL) {
     lastDistanceRead = millis();
+#if ECOSTAY_WOKWI_SIMULATION
+    if (simDistanceOverrideActive) {
+      currentDistance = simDistanceCm;
+    } else {
+      currentDistance = getDistance();
+    }
+#else
     currentDistance = getDistance();
+#endif
 
 #if DEBUG_VERBOSE
     if (currentDistance <= 200) {
@@ -471,7 +851,13 @@ void updateGasReading() {
 // DOOR SENSOR
 // ======================
 void updateDoorReading() {
+#if ECOSTAY_WOKWI_SIMULATION
+  int doorState = simDoorOverrideActive
+    ? (simDoorOpen ? LOW : HIGH)
+    : digitalRead(DOOR_SWITCH_PIN);
+#else
   int doorState = digitalRead(DOOR_SWITCH_PIN);
+#endif
   bool newDoorOpen = (doorState == LOW);
 
   if (doorState != lastDoorState) {
@@ -500,7 +886,13 @@ void updateDoorReading() {
 // PIR SENSOR
 // ======================
 void updatePIRReading() {
+#if ECOSTAY_WOKWI_SIMULATION
+  int pirState = simPirOverrideActive
+    ? (simPirDetected ? HIGH : LOW)
+    : digitalRead(PIR_PIN);
+#else
   int pirState = digitalRead(PIR_PIN);
+#endif
   bool newPirDetected = (pirState == HIGH);
 
   if (pirState != lastPIRState) {
@@ -803,6 +1195,11 @@ void printProvisioningStatus() {
   Serial.println("Wokwi load-test commands:");
   Serial.println("  SIM_LOAD OFF | LAMP | FAN | BOTH");
   Serial.println("  SIM_AUTO  (return control to Firebase)");
+  Serial.println("Wokwi occupancy-test commands:");
+  Serial.println("  SIM_SCENARIO START | STOP | STATUS");
+  Serial.println("  SIM_DOOR 0|1  (0=closed, 1=open)");
+  Serial.println("  SIM_PIR 0|1");
+  Serial.println("  SIM_DISTANCE <cm>");
 #endif
 }
 
@@ -879,6 +1276,105 @@ void loadProvisioning() {
 
 void handleSerialCommand(const String &cmd) {
 #if ECOSTAY_WOKWI_SIMULATION
+  if (cmd == "SIM_SCENARIO START") {
+    startSimulationScenario();
+    return;
+  }
+
+  if (cmd == "SIM_SCENARIO STOP") {
+    stopSimulationScenario();
+    return;
+  }
+
+  if (cmd == "SIM_SCENARIO STATUS") {
+    printSimulationScenarioStatus();
+    return;
+  }
+
+  if (cmd.startsWith("SIM_SCENARIO")) {
+    Serial.println("Usage: SIM_SCENARIO START | STOP | STATUS");
+    return;
+  }
+
+  if (cmd.startsWith("SIM_DOOR ")) {
+    if (simScenarioRunning) {
+      Serial.println("SIM_OVERRIDE_ERROR input=door reason=scenario_running");
+      return;
+    }
+
+    String value = cmd.substring(9);
+    value.trim();
+    if (value != "0" && value != "1") {
+      Serial.println("Usage: SIM_DOOR 0|1  (0=closed, 1=open)");
+      return;
+    }
+
+    simDoorOverrideActive = true;
+    simDoorOpen = value == "1";
+    Serial.printf(
+      "SIM_OVERRIDE input=door active=1 value=%u\n",
+      simDoorOpen ? 1 : 0
+    );
+    return;
+  }
+
+  if (cmd.startsWith("SIM_PIR ")) {
+    if (simScenarioRunning) {
+      Serial.println("SIM_OVERRIDE_ERROR input=pir reason=scenario_running");
+      return;
+    }
+
+    String value = cmd.substring(8);
+    value.trim();
+    if (value != "0" && value != "1") {
+      Serial.println("Usage: SIM_PIR 0|1");
+      return;
+    }
+
+    simPirOverrideActive = true;
+    simPirDetected = value == "1";
+    simPirPulseActive = false;
+    Serial.printf(
+      "SIM_OVERRIDE input=pir active=1 value=%u\n",
+      simPirDetected ? 1 : 0
+    );
+    return;
+  }
+
+  if (cmd.startsWith("SIM_DISTANCE ")) {
+    if (simScenarioRunning) {
+      Serial.println(
+        "SIM_OVERRIDE_ERROR input=distance reason=scenario_running"
+      );
+      return;
+    }
+
+    String value = cmd.substring(13);
+    value.trim();
+    const char *start = value.c_str();
+    char *end = nullptr;
+    float distanceCm = strtof(start, &end);
+    if (
+      value.length() == 0 ||
+      end == start ||
+      *end != '\0' ||
+      !isfinite(distanceCm) ||
+      distanceCm < 0.0f
+    ) {
+      Serial.println("Usage: SIM_DISTANCE <cm>");
+      return;
+    }
+
+    simDistanceOverrideActive = true;
+    simDistanceCm = distanceCm;
+    lastDistanceRead = millis() - DISTANCE_INTERVAL;
+    Serial.printf(
+      "SIM_OVERRIDE input=distance active=1 value_cm=%.1f\n",
+      simDistanceCm
+    );
+    return;
+  }
+
   if (cmd == "SIM_AUTO") {
     simLoadOverride = false;
     Serial.println("SIM load override disabled; Firebase commands are active.");
@@ -1020,6 +1516,7 @@ void setup() {
 #if ECOSTAY_WOKWI_SIMULATION
   Serial.println("Wokwi mode enabled: PZEM UART GPIO18/19; fan GPIO26; lamp GPIO13.");
   Serial.println("Use SIM_LOAD OFF/LAMP/FAN/BOTH, or SIM_AUTO for Firebase control.");
+  Serial.println("Use SIM_SCENARIO START for the compiled occupancy test timeline.");
 #endif
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -1078,6 +1575,10 @@ void loop() {
     handleSerialCommand(cmd);
   }
 
+#if ECOSTAY_WOKWI_SIMULATION
+  updateSimulationScenario();
+#endif
+
   updateFlowReading();
   updateWaterReading();
   updateGasReading();
@@ -1086,6 +1587,12 @@ void loop() {
   updateDoorReading();
   updatePIRReading();
   updateOccupancyState();
+
+#if ECOSTAY_WOKWI_SIMULATION
+  // Transcript after the existing state machine has evaluated the new inputs.
+  flushSimulationScenarioTranscript();
+#endif
+
   updatePzemReading();
 
   readDeviceCommands();

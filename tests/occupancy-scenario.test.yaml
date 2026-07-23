@@ -1,0 +1,13 @@
+name: EcoStay compiled occupancy scenario
+version: 1
+author: EcoStay
+
+steps:
+  - wait-serial: 'Smart Hotel System Ready'
+  - write-serial: [83, 73, 77, 95, 83, 67, 69, 78, 65, 82, 73, 79, 32, 83, 84, 65, 82, 84, 10]
+  - wait-serial: 'SIM_SCENARIO_START elapsed_ms=0'
+  - wait-serial: 'action=DOOR_OPEN value=1 occupancy=ENTRY_DETECTED'
+  - wait-serial: 'action=SET_DISTANCE value_cm=40.0 occupancy=OCCUPIED_ACTIVE'
+  - wait-serial: 'SIM_SCENARIO_STATE'
+  - wait-serial: 'action=MARKER label=placeholder_end occupancy=OCCUPIED_IDLE'
+  - wait-serial: 'SIM_SCENARIO_COMPLETE'

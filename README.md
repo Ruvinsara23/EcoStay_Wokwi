@@ -114,14 +114,16 @@ state machine evaluates their resulting inputs. Timeout-driven state changes
 emit `SIM_SCENARIO_STATE` records. The checked-in table is an 18-second
 placeholder and should be replaced with the final experimental timeline.
 
-After setting `WOKWI_CLI_TOKEN`, run the automated smoke test twice:
+After setting `WOKWI_CLI_TOKEN`, run the two-session acceptance test:
 
 ```powershell
-.\wokwi-cli.exe . --scenario tests/occupancy-scenario.test.yaml --timeout 60000
+.\tests\run-occupancy-repeatability.ps1
 ```
 
-Both runs must complete with the same ordered action/state assertions. Preserve
-the serial logs when comparing actual `elapsed_ms` jitter between runs.
+It launches two separate simulator sessions, preserves both serial logs under
+`tests/.artifacts`, requires identical scheduled actions and state transitions,
+and allows at most 3000 ms actual timing difference by default. Use
+`-TimingToleranceMs` to set a different documented experimental tolerance.
 
 ## Isolated verification without Firebase
 

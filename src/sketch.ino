@@ -576,6 +576,7 @@ void updateSimulationScenario() {
   }
 
   uint32_t elapsedMs = millis() - simScenarioStartedAt;
+  bool actionExecuted = false;
 
   if (simPirPulseActive && elapsedMs >= simPirReleaseOffsetMs) {
     simPirDetected = false;
@@ -587,9 +588,14 @@ void updateSimulationScenario() {
       0.0f,
       nullptr
     );
+    actionExecuted = true;
   }
 
-  while (
+  // Execute at most one action per loop. The normal sensor updates and
+  // updateOccupancyState() therefore evaluate every action independently
+  // before its transcript record is printed.
+  if (
+    !actionExecuted &&
     simScenarioPosition < SIM_SCENARIO_ENTRY_COUNT &&
     elapsedMs >= SIM_OCCUPANCY_SCENARIO[simScenarioPosition].offsetMs
   ) {
@@ -597,6 +603,7 @@ void updateSimulationScenario() {
       SIM_OCCUPANCY_SCENARIO[simScenarioPosition];
     executeSimulationScenarioEntry(entry, elapsedMs);
     simScenarioPosition++;
+    actionExecuted = true;
   }
 
   if (
